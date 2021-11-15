@@ -27,7 +27,7 @@ public class KafkaProducerAnalysis {
         ProducerRecord<String, String> record =
             new ProducerRecord<>(topic, "Hello, Kafka!");
         try {
-            producer.send(record);
+            producer.send(record) ;
         } catch (Exception e) {
             e.printStackTrace();
         }finally {
