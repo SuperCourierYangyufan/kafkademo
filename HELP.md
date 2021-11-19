@@ -61,31 +61,48 @@
          --topic 指定了消费者订阅的主题
         ./kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic topic-demo
         ```    
-5. 生产者消息在通过 send() 方法发往 broker 的过程中，有可能需要经过拦截器（Interceptor）、序列化器（Serializer）和分区器（Partitioner）  
-的一系列作用之后才能被真正地发往broker。
-    - 拦截器一共有两种拦截器：生产者拦截器和消费者拦截器
-        * 生产者拦截器的使用也很方便，主要是自定义实现 org.apache.kafka.clients.producer.ProducerInterceptor 接口
-            1. kafka会在序列化和分区前调用onSend方法
-            2. KafkaProducer 会在消息被应答之前或消息发送失败时调用onAcknowledgement方法
-            3. close() 方法主要用于在关闭拦截器时执行一些资源的清理工作
-        * 实现自定义拦截器需要在配置中注册map.put(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG,MyProducerInterceptor.class.getName()+",
-        "+..其余拦截器);
-    - 默认序列化器为org.apache.kafka.common.serialization.StringSerializer,很单纯的把字符串转为byte[] 
-    - 分区器如果入参默认带了分区就不执行,不然会计算一个int的分区号
-6. 客户端由两个线程协调,这两个线程分别为主线程和Sender(发送线程)
-    - 在主线程中由 KafkaProducer 创建消息，然后通过可能的拦截器、序列化器和分区器的作用之后缓存到消息累加器（也称为消息收集器）中
-        * 消息累加器分为多个消息包(ProducerBatch),每个消息包里包含多个消息,发送消息以消息包的形式发送,减少网络请求次数
-    - Sender 线程负责从 消息累加器 中获取消息并将其发送到 Kafka 中
-    - 消息在发送前需要创建一块内存来保存对应的消息,在客户端中,kafka专门BufferPool来存放,来对消息(byte[])进行存放(复用),而对
-    消息大于BufferPool的消息并不会复用,所以适当的扩大BufferPool来提高复用
-    ![客户端架构](image/客户端架构.png)       
-    - Sender线程会从消息收集器中获取缓存消息,转化为<Node,Request>的形式,在往kafka发送前还会保存到InFlightRequests中
-        * 其中 Node 表示 Kafka 集群的 broker 节点。对于网络连接来说，生产者客户端是与具体的 broker 节点建立的连接，也就是向具体的 broker 节点发送消息，
-        而并不关心消息属于哪一个分区,但是需要知道目标分区的 leader 副本所在的 broker 节点的地址、端口等信息才能建立连接
-        * Request包含List<消息包>,kafka各种协议的请求
-        * InFlightRequests主要缓存已经发送但是没有收到响应的请求,他可以限制连接Node的个数,最大的缓存数,当超过最大缓存数后,不能向该连接
-        发送请求,可以通过队列数量和最大缓存值判断节点负载较大或网络连接有问题 
-    -元数据是指 Kafka 集群的元数据，这些元数据具体记录了集群中有哪些主题，这些主题有哪些分区，每个分区的 leader 副本分配在哪个节点上，
-    follower 副本分配在哪些节点上，哪些副本在 AR、ISR 等集合中，集群中有哪些节点，控制器节点又是哪一个等信息
-        * 元数据虽然由 Sender 线程负责更新，但是主线程也需要读取这些信息
-              
+5. 客户端
+    1. 生产者消息在通过 send() 方法发往 broker 的过程中，有可能需要经过拦截器（Interceptor）、序列化器（Serializer）和分区器（Partitioner）  
+       的一系列作用之后才能被真正地发往broker。          
+        - 拦截器一共有两种拦截器：生产者拦截器和消费者拦截器
+            * 生产者拦截器的使用也很方便，主要是自定义实现 org.apache.kafka.clients.producer.ProducerInterceptor 接口
+                1. kafka会在序列化和分区前调用onSend方法
+                2. KafkaProducer 会在消息被应答之前或消息发送失败时调用onAcknowledgement方法
+                3. close() 方法主要用于在关闭拦截器时执行一些资源的清理工作
+            * 实现自定义拦截器需要在配置中注册map.put(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG,MyProducerInterceptor.class.getName()+",
+            "+..其余拦截器);
+        - 默认序列化器为org.apache.kafka.common.serialization.StringSerializer,很单纯的把字符串转为byte[] 
+        - 分区器如果入参默认带了分区就不执行,不然会计算一个int的分区号
+    2. 客户端由两个线程协调,这两个线程分别为主线程和Sender(发送线程)
+        - 在主线程中由 KafkaProducer 创建消息，然后通过可能的拦截器、序列化器和分区器的作用之后缓存到消息累加器（也称为消息收集器）中
+            * 消息累加器分为多个消息包(ProducerBatch),每个消息包里包含多个消息,发送消息以消息包的形式发送,减少网络请求次数
+        - Sender 线程负责从 消息累加器 中获取消息并将其发送到 Kafka 中
+        - 消息在发送前需要创建一块内存来保存对应的消息,在客户端中,kafka专门BufferPool来存放,来对消息(byte[])进行存放(复用),而对
+        消息大于BufferPool的消息并不会复用,所以适当的扩大BufferPool来提高复用
+        ![客户端架构](image/客户端架构.png)       
+        - Sender线程会从消息收集器中获取缓存消息,转化为<Node,Request>的形式,在往kafka发送前还会保存到InFlightRequests中
+            * 其中 Node 表示 Kafka 集群的 broker 节点。对于网络连接来说，生产者客户端是与具体的 broker 节点建立的连接，也就是向具体的 broker 节点发送消息，
+            而并不关心消息属于哪一个分区,但是需要知道目标分区的 leader 副本所在的 broker 节点的地址、端口等信息才能建立连接
+            * Request包含List<消息包>,kafka各种协议的请求
+            * InFlightRequests主要缓存已经发送但是没有收到响应的请求,他可以限制连接Node的个数,最大的缓存数,当超过最大缓存数后,不能向该连接
+            发送请求,可以通过队列数量和最大缓存值判断节点负载较大或网络连接有问题 
+        -元数据是指 Kafka 集群的元数据，这些元数据具体记录了集群中有哪些主题，这些主题有哪些分区，每个分区的 leader 副本分配在哪个节点上，
+        follower 副本分配在哪些节点上，哪些副本在 AR、ISR 等集合中，集群中有哪些节点，控制器节点又是哪一个等信息
+            * 元数据虽然由 Sender 线程负责更新，但是主线程也需要读取这些信息
+    3. 重要参数  
+        - Acks,这个参数用来指定分区中必须要有多少个副本收到这条消息，之后生产者才会认为这条消息是成功写入的,它涉及消息的可靠性和吞吐量之间的权衡
+            * acks = 1。(折中)默认值即为1。生产者发送消息之后，只要分区的 leader 副本成功写入消息，那么它就会收到来自服务端的成功响应
+            * acks = 0。(最大吞吐量)生产者发送消息之后不需要等待任何服务端的响应
+            * acks = -1 或 acks = all。(最强可靠性)生产者在消息发送之后，需要等待 ISR 中的所有副本都成功写入消息之后才能够收到来自服务端的成功响应      
+        - max.request.size 这个参数用来限制生产者客户端能发送的消息的最大值,默认值为1MB
+        - retries retries 参数用来配置生产者重试的次数，默认值为0，即在发生异常的时候不进行任何重试动作
+            * retry.backoff.ms 这个参数的默认值为100，它用来设定两次重试之间的时间间隔，避免无效的频繁重试
+        - connections.max.idle.ms 这个参数用来指定在多久之后关闭闲置的连接，默认值是540000（ms），即9分钟   
+6. 消费者
+    1. 消费组:每个消费者都有一个对应的消费组。当消息发布到主题后，只会被投递给订阅它的每个消费组中的一个消费者
+        - 如果所有的消费者都隶属于同一个消费组，那么所有的消息都会被均衡地投递给每一个消费者，即每条消息只会被一个消费者处理，这就相当于点对点模式的应用
+        - 如果所有的消费者都隶属于不同的消费组，那么所有的消息都会被广播给所有的消费者，即每条消息会被所有的消费者处理，这就相当于发布/订阅模式的应用
+    2. 一个消费者可以订阅一个或多个主题 
+    3. Kafka 中的消费是基于拉模式的。消息的消费一般有两种模式：推模式和拉模式。
+        - 推模式是服务端主动将消息推送给消费者
+        - 拉模式是消费者主动向服务端发起请求来拉取消息            
